@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonariadeviceactivityapp-{{ .Values.namespace }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: sonariadeviceactivity-{{ .Values.namespace }}
+spec:
+  type: NodePort
+  ports:
+    - port: {{ .Values.DataServeDeviceActivity_Port }}
+      targetPort: {{ .Values.DataServeDeviceActivity_Port }}
+      nodePort: 30084
+      protocol: TCP
+      name: http
+    - port: 3500
+      targetPort: 3500
+      protocol: TCP
+      name: dapr-http
+    - port: 50001
+      targetPort: 50001
+      protocol: TCP
+      name: dapr-grpc
+  selector:
+    app: sonariadeviceactivity-{{ .Values.namespace }}
+
+---
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonariadeviceactivityapp-{{ .Values.namespace }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: sonariadeviceactivity-{{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonariadeviceactivity-{{ .Values.namespace }}
+  template:
+    metadata:
+      labels:
+        app: sonariadeviceactivity-{{ .Values.namespace }}
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "sonaria-deviceactivity-dapr"
+        dapr.io/app-port: "{{ .Values.DataServeDeviceActivity_Port }}"
+        dapr.io/config: "dapr-config"
+        dapr.io/log-as-json: "true"
+        dapr.io/dapr-grpc-port: "50001"
+        dapr.io/enable-api-logging: "true"
+        dapr.io/enable-mtls: "false"
+        # dapr.io/volume-mounts-rw: "https:/config/cert/https"
+    spec:
+      volumes:
+        - name: sonariaconfig
+          hostPath:
+            path: {{ .Values.ServerConfigPath_Linux }}
+            type: Directory
+      containers:
+        - image: lowrydev.azurecr.io/sonaria-deviceactivity-api:latest
+          name: sonaria-deviceactivity-api
+          imagePullPolicy: Always
+          # args:
+          #   - --kubelet-insecure-tls
+          #   - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
+          #   - --metric-resolution=30s
+          volumeMounts:
+           - name: sonariaconfig
+             mountPath: {{ .Values.ServerConfigPath_Linux }}
+          envFrom:
+            - configMapRef:
+                name: sonaria-cm
+            - secretRef:
+                name: sonaria-secrets
+          env:
+            #ASPNETCORE_URLS
+            - name: Urls  #This environment variable will override Kestral http/https port 
+              value: "http://*:{{ .Values.DataServeDeviceActivity_Port }}"
+          ports:
+            - containerPort: {{ .Values.DataServeDeviceActivity_Port }}
+            - containerPort: 50001
+            - containerPort: 3500
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: {{ .Values.DataServeDeviceActivity_Port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds : 5
+            failureThreshold : 3
+          readinessProbe:
+            httpGet:
+              path: /hc
+              port: {{ .Values.DataServeDeviceActivity_Port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds : 5
+            failureThreshold: 3
+      imagePullSecrets:
+        - name: registrysecret

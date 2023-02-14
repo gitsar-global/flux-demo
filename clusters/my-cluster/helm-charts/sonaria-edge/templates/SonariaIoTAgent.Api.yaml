@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonariaiotagentapp-{{ .Values.namespace }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: sonariaiotagent-{{ .Values.namespace }}
+spec:
+  type: NodePort
+  ports:
+    - port: {{ .Values.IotAgent_Port }}
+      targetPort: {{ .Values.IotAgent_Port }}
+      #nodePort: 30086
+      protocol: TCP
+      name: http
+    - port: 3500
+      targetPort: 3500
+      protocol: TCP
+      name: dapr-http
+    - port: 50001
+      targetPort: 50001
+      #nodePort: 30056
+      protocol: TCP
+      name: dapr-grpc
+  selector:
+    app: sonariaiotagent-{{ .Values.namespace }}
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonariaiotagentapp-{{ .Values.namespace }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: sonariaiotagent-{{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonariaiotagent-{{ .Values.namespace }}
+  template:
+    metadata:
+      labels:
+        app: sonariaiotagent-{{ .Values.namespace }}
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "sonaria-iot-agent-dapr"
+        dapr.io/app-port: "{{ .Values.IotAgent_Port }}"
+        dapr.io/config: "dapr-config"
+        dapr.io/log-as-json: "true"
+        dapr.io/dapr-grpc-port: "50001"
+        dapr.io/enable-api-logging: "true"
+        dapr.io/enable-mtls: "false"
+    spec:
+      volumes:
+        - name: sonariaconfig
+          hostPath:
+            path: {{ .Values.ServerConfigPath_Linux }}
+            type: Directory
+      containers:
+        - image: lowrydev.azurecr.io/sonaria-iot-agent-api:latest
+          name: sonaria-iot-agent-api
+          imagePullPolicy: Always
+          volumeMounts:
+           - name: sonariaconfig
+             mountPath: {{ .Values.ServerConfigPath_Linux }}
+          envFrom:
+            - configMapRef:
+                name: sonaria-cm
+            - secretRef:
+                name: sonaria-secrets
+          env:
+            - name: Urls  #This environment variable will override Kestral http/https port 
+              value: "http://*:{{ .Values.IotAgent_Port }}"
+            # - name: ASPNETCORE_URLS
+            #   value: "http://+:{{ .Values.IotAgent_Port }}"
+          ports:
+            - containerPort: {{ .Values.IotAgent_Port }}
+            - containerPort: 50001
+            - containerPort: 3500
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: {{ .Values.IotAgent_Port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds : 5
+            failureThreshold : 3
+          readinessProbe:
+            httpGet:
+              path: /hc
+              port: {{ .Values.IotAgent_Port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds : 5
+            failureThreshold: 3
+      imagePullSecrets:
+        - name: registrysecret

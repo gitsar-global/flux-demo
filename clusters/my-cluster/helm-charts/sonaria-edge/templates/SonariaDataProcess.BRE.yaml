@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonariabreapp-{{ .Values.namespace }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: sonariabre-{{ .Values.namespace }}
+spec:
+  type: NodePort
+  ports:
+    - port: {{ .Values.DataProcessBre_Port }}
+      targetPort: {{ .Values.DataProcessBre_Port }}  #port of target Pod runinng app
+      nodePort: 30083  #port that is exposed to browser
+      protocol: TCP
+      name: http
+    - port: 3500
+      targetPort: 3500
+      protocol: TCP
+      name: dapr-http
+    - port: 50001
+      targetPort: 50001
+      nodePort: 30053
+      protocol: TCP
+      name: dapr-grpc
+  selector:
+    app: sonariabre-{{ .Values.namespace }}
+
+---
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonariabreapp-{{ .Values.namespace }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: sonariabre-{{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonariabre-{{ .Values.namespace }}
+  template:
+    metadata:
+      labels:
+        app: sonariabre-{{ .Values.namespace }}
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "sonaria-dataprocess-bre-dapr"
+        dapr.io/app-port: "{{ .Values.DataProcessBre_Port }}"
+        dapr.io/config: "dapr-config"
+        dapr.io/log-as-json: "true"
+        dapr.io/dapr-grpc-port: "50001"
+        dapr.io/enable-api-logging: "true"
+        # dapr.io/volume-mounts-rw: "https:/config/cert/https"
+    spec:
+      containers:
+        - image: lowrydev.azurecr.io/sonaria-bre-api:latest
+          name: sonaria-bre-api
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: sonaria-cm
+            - secretRef:
+                name: sonaria-secrets
+          env:
+            - name: Urls  #This environment variable will override Kestral http/https port 
+              value: "http://*:{{ .Values.DataProcessBre_Port }}"
+          ports:
+            - containerPort: {{ .Values.DataProcessBre_Port }}
+            - containerPort: 50001
+            - containerPort: 3500
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: {{ .Values.DataProcessBre_Port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds : 5
+            failureThreshold : 3
+          readinessProbe:
+            httpGet:
+              path: /hc
+              port: {{ .Values.DataProcessBre_Port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds : 5
+            failureThreshold: 3
+      imagePullSecrets:
+        - name: registrysecret

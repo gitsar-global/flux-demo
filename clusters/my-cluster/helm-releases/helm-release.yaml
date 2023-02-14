@@ -1,0 +1,16 @@
+apiVersion: helm.fluxcd.io/v1
+kind: HelmRelease
+metadata:
+  name: sonaria-edge
+  namespace: default
+  annotations:
+    fluxcd.io/automated: "true"
+spec:
+  releaseName: sonaria-edge
+  targetNamespace: sonaria-edge
+  chart:
+    git: git@github.com:gitsar-global/flux-demo.git
+    path: helm-charts/sonaria-edge
+    ref: sonaria-edge
+  values:
+   replicaCount: 5
